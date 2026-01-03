@@ -71,7 +71,7 @@ locals {
             [Service]
             Restart=always
             RestartSec=10
-            ExecStart=/usr/bin/docker run --rm --network custom-bridge --env-file /etc/actual-mcp.env --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' --name=actual_mcp sstefanov/actual-mcp:latest --sse --enable-write --enable-bearer
+            ExecStart=/usr/bin/docker run --rm --network custom-bridge --env-file /etc/actual-mcp.env --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' --name=actual_mcp --entrypoint /bin/sh sstefanov/actual-mcp:latest -c 'npm install @actual-app/api@latest && npm start -- --sse --enable-write --enable-bearer'
             ExecStop=-/usr/bin/docker stop actual_mcp
             EOT6
     },
