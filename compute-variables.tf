@@ -47,3 +47,7 @@ variable "vm_size" {
   type        = string
   description = "VM instance type."
 }
+
+variable "ts_authkey" {
+  type = string
+}

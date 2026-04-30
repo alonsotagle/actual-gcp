@@ -25,11 +25,15 @@ locals {
       content     = <<-EOT2
             [Unit]
             Description=Start Caddy
+            After=network-online.target docker.service tailscale.service
+            Requires=docker.service tailscale.service
 
             [Service]
             Restart=always
             RestartSec=10
-            ExecStart=/usr/bin/docker run --rm --network custom-bridge -p 80:80 -p 443:443 --mount 'type=bind,source=/mnt/disks/data/caddy/Caddyfile,target=/etc/caddy/Caddyfile,readonly' --mount 'type=bind,source=/mnt/disks/data/caddy/data,target=/data' --mount 'type=bind,source=/mnt/disks/data/caddy/config,target=/config' --name=caddy caddy:alpine
+            ExecStartPre=-/usr/bin/docker stop caddy
+            ExecStartPre=-/usr/bin/docker rm caddy
+            ExecStart=/usr/bin/docker run --rm --network custom-bridge -p 80:80 -p 443:443 --mount 'type=bind,source=/mnt/disks/data/caddy/Caddyfile,target=/etc/caddy/Caddyfile,readonly' --mount 'type=bind,source=/mnt/disks/data/caddy/data,target=/data' --mount 'type=bind,source=/mnt/disks/data/caddy/config,target=/config' -v /var/run/tailscale:/var/run/tailscale --name=caddy caddy:alpine
             ExecStop=-/usr/bin/docker stop caddy
             EOT2
     },
@@ -42,6 +46,8 @@ locals {
             Description=Start Actual
 
             [Service]
+            ExecStartPre=-/usr/bin/docker stop actual_server
+            ExecStartPre=-/usr/bin/docker rm actual_server
             ExecStart=/usr/bin/docker run --rm --network custom-bridge --mount 'type=bind,source=/mnt/disks/data/actual-data,target=/data' --name=actual_server actualbudget/actual-server:latest
             ExecStop=/usr/bin/docker stop actual_server
             ExecStopPost=/usr/bin/docker rm actual_server
@@ -56,7 +62,7 @@ locals {
             ACTUAL_PASSWORD=${var.actual_password}
             ACTUAL_BUDGET_SYNC_ID=${var.actual_budget_sync_id}
             BEARER_TOKEN=${var.mcp_bearer_token}
-      EOTENV
+            EOTENV
     },
     {
       path        = "/etc/systemd/system/actual-mcp.service"
@@ -71,7 +77,9 @@ locals {
             [Service]
             Restart=always
             RestartSec=10
-            ExecStart=/usr/bin/docker run --rm --network custom-bridge --env-file /etc/actual-mcp.env --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' --name=actual_mcp --entrypoint /bin/sh sstefanov/actual-mcp:latest -c 'npm install @actual-app/api@latest && npm start -- --sse --enable-write --enable-bearer'
+            ExecStartPre=-/usr/bin/docker stop actual_mcp
+            ExecStartPre=-/usr/bin/docker rm actual_mcp
+            ExecStart=/usr/bin/docker run --name actual_mcp --network custom-bridge --env-file /etc/actual-mcp.env --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' sstefanov/actual-mcp:latest --sse --enable-write --enable-bearer
             ExecStop=-/usr/bin/docker stop actual_mcp
             EOT6
     },
@@ -80,16 +88,48 @@ locals {
       permissions = "0644"
       owner       = "root"
       content     = <<-EOT4
-            ${var.actual_fqdn} {
-                encode gzip zstd
+            ${var.actual_fqdn}, actual.tailfd243b.ts.net {
+              encode gzip zstd
+
+              # Actual MCP Server (Specific paths first)
+              handle /mcp* {
+                uri strip_prefix /mcp
+                reverse_proxy actual_mcp:3000
+              }
+
+              # Main Actual Budget (Catch-all last)
+              handle /* {
                 reverse_proxy actual_server:5006
+              }
             }
 
             mcp.${var.actual_fqdn} {
-                encode gzip zstd
-                reverse_proxy actual_mcp:3000
+              encode gzip zstd
+              reverse_proxy actual_mcp:3000
+            }
+
+            http://actual {
+              redir https://actual.tailfd243b.ts.net{uri}
             }
             EOT4
+    },
+    {
+      path        = "/etc/systemd/system/tailscale.service"
+      permissions = "0644"
+      owner       = "root"
+      content     = <<-EOTTS
+            [Unit]
+            Description=Tailscale
+            After=docker.service
+            Requires=docker.service
+
+            [Service]
+            Restart=always
+            ExecStartPre=-/usr/bin/docker stop tailscale
+            ExecStartPre=-/usr/bin/docker rm tailscale
+            ExecStart=/usr/bin/docker run --name tailscale --network host --cap-add=NET_ADMIN --cap-add=SYS_MODULE -v /dev/net/tun:/dev/net/tun -v /mnt/disks/data/tailscale:/var/lib/tailscale -v /var/run/tailscale:/var/run/tailscale -e TS_AUTHKEY="${var.ts_authkey}" -e TS_STATE_DIR=/var/lib/tailscale -e TS_SSH=true -e TS_EXTRA_ARGS="--reset" -e TS_SOCKET=/var/run/tailscale/tailscaled.sock tailscale/tailscale:latest
+            ExecStop=/usr/bin/docker stop tailscale
+            EOTTS
     },
     {
       path        = "/var/lib/cloud/scripts/per-instance/fs-prepare.sh"
@@ -106,17 +146,25 @@ locals {
             mkdir -p /mnt/disks/data/caddy/config
             mkdir -p /mnt/disks/data/actual-data
             mkdir -p /mnt/disks/data/actual-mcp-data
+            mkdir -p /mnt/disks/data/tailscale
             cp /tmp/Caddyfile /mnt/disks/data/caddy/Caddyfile
             EOT5
     }
   ]
 
   runcmd = [
-    "docker network create custom-bridge",
+    "docker network create custom-bridge || true",
     "systemctl daemon-reload",
+    "mkdir -p /var/run/tailscale",
+    "systemctl enable tailscale.service",
+    "systemctl start tailscale.service",
+    "systemctl enable caddy.service",
     "systemctl start caddy.service",
+    "systemctl enable actual.service",
     "systemctl start actual.service",
+    "systemctl enable duckdns.service",
     "systemctl start duckdns.service",
+    "systemctl enable actual-mcp.service",
     "systemctl start actual-mcp.service"
   ]
 
@@ -128,7 +176,8 @@ locals {
     "mkdir -p /mnt/disks/data/caddy/data",
     "mkdir -p /mnt/disks/data/caddy/config",
     "mkdir -p /mnt/disks/data/actual-data",
-    "mkdir -p /mnt/disks/data/actual-mcp-data"
+    "mkdir -p /mnt/disks/data/actual-mcp-data",
+    "mkdir -p /mnt/disks/data/tailscale"
   ]
 })}
   EOT
