@@ -3,21 +3,7 @@ locals {
     #cloud-config
     ${yamlencode({
   write_files = [
-    {
-      path        = "/etc/systemd/system/duckdns.service"
-      permissions = "0644"
-      owner       = "root"
-      content     = <<-EOT1
-            [Unit]
-            Description=Start DuckDNS
 
-            [Service]
-            Restart=always
-            RestartSec=30
-            ExecStart=/usr/bin/docker run --rm -e SUBDOMAINS=${var.duckdns_subdomains} -e TOKEN=${var.duckdns_token} --name=duckdns lscr.io/linuxserver/duckdns:latest
-            ExecStop=-/usr/bin/docker stop duckdns
-            EOT1
-    },
     {
       path        = "/etc/systemd/system/caddy.service"
       permissions = "0644"
@@ -88,7 +74,7 @@ locals {
       permissions = "0644"
       owner       = "root"
       content     = <<-EOT4
-            ${var.actual_fqdn}, actual.tailfd243b.ts.net {
+            actual.tailfd243b.ts.net {
               encode gzip zstd
 
               # Actual MCP Server (Specific paths first)
@@ -101,11 +87,6 @@ locals {
               handle /* {
                 reverse_proxy actual_server:5006
               }
-            }
-
-            mcp.${var.actual_fqdn} {
-              encode gzip zstd
-              reverse_proxy actual_mcp:3000
             }
 
             http://actual {
@@ -162,8 +143,6 @@ locals {
     "systemctl start caddy.service",
     "systemctl enable actual.service",
     "systemctl start actual.service",
-    "systemctl enable duckdns.service",
-    "systemctl start duckdns.service",
     "systemctl enable actual-mcp.service",
     "systemctl start actual-mcp.service"
   ]
