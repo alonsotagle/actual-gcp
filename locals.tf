@@ -83,6 +83,10 @@ locals {
                 reverse_proxy actual_mcp:3000
               }
 
+              handle /messages* {
+                reverse_proxy actual_mcp:3000
+              }
+
               # Main Actual Budget (Catch-all last)
               handle /* {
                 reverse_proxy actual_server:5006
