@@ -33,11 +33,6 @@ variable "user" {
   type = string
 }
 
-variable "vm_image_family" {
-  type        = string
-  description = "Family of image to use with VM creation"
-}
-
 variable "vm_image_project" {
   type        = string
   description = "Project to which the image belongs."

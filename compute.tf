@@ -12,6 +12,10 @@ resource "google_compute_disk" "container_host_boot_disk" {
     managed_by = "terraform"
   }
   physical_block_size_bytes = 4096
+
+  lifecycle {
+    ignore_changes = [image]
+  }
 }
 
 resource "google_compute_disk" "container_host_data_disk" {
@@ -22,6 +26,11 @@ resource "google_compute_disk" "container_host_data_disk" {
     managed_by = "terraform"
   }
   physical_block_size_bytes = 4096
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [snapshot]
+  }
 }
 
 resource "google_compute_instance" "container_host" {

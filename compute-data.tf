@@ -1,4 +1,4 @@
 data "google_compute_image" "container_optimized" {
-  family  = var.vm_image_family
+  name    = "cos-117-18613-613-40"
   project = var.vm_image_project
 }
