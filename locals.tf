@@ -65,6 +65,7 @@ locals {
             RestartSec=10
             ExecStartPre=-/usr/bin/docker stop actual_mcp
             ExecStartPre=-/usr/bin/docker rm actual_mcp
+            ExecStartPre=/bin/rm -rf /mnt/disks/data/actual-mcp-data/*
             ExecStart=/usr/bin/docker run --name actual_mcp --network custom-bridge -p 127.0.0.1:3000:3000 --env-file /etc/actual-mcp.env --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' sstefanov/actual-mcp:latest --sse --enable-write --enable-bearer
             ExecStop=-/usr/bin/docker stop actual_mcp
             EOT6
@@ -80,10 +81,6 @@ locals {
               # Actual MCP Server (Specific paths first)
               handle /mcp* {
                 uri strip_prefix /mcp
-                reverse_proxy actual_mcp:3000
-              }
-
-              handle /messages* {
                 reverse_proxy actual_mcp:3000
               }
 
