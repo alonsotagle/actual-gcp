@@ -1,21 +1,6 @@
-variable "actual_fqdn" {
-  type        = string
-  description = "FQDN of actual server to use for certificate generation"
-}
-
 variable "container_host_network_tags" {
   type        = list(string)
   description = "List of network tags to add for firewall rules"
-}
-
-variable "duckdns_subdomains" {
-  type        = string
-  description = "Comma-delimited list of DuckDNS subdomains"
-}
-
-variable "duckdns_token" {
-  type        = string
-  description = "Authentication token for DuckDNS"
 }
 
 variable "public_key_path" {
