@@ -147,48 +147,40 @@ locals {
 
             BACKUP_BUCKET="${google_storage_bucket.backup.name}"
             DATA_DIR="/mnt/disks/data/actual-data"
-            BACKUP_TMP="/tmp/actual-backups"
-            TIMESTAMP="$$(date +%Y%m%d_%H%M%S)"
 
-            echo "[$$(date -Iseconds)] Starting Actual Budget SQLite backup..."
-
-            mkdir -p "$BACKUP_TMP"
+            echo "[$(date -Iseconds)] Starting Actual Budget SQLite backup..."
 
             /usr/bin/docker run --rm \
               -v "$DATA_DIR":/data:ro \
-              -v "$BACKUP_TMP":/backups \
-              google/cloud-sdk:alpine sh -c '
+              google/cloud-sdk:alpine sh -c "
                 set -euo pipefail
                 apk add --no-cache sqlite tar gzip >/dev/null 2>&1
-                TS="'"$$TIMESTAMP"'"
-                DEST="/backups/$${TS}"
-                mkdir -p "$${DEST}"
+                TIMESTAMP=\$$(date +%Y%m%d_%H%M%S)
+                DEST=\"/tmp/backup_\$${TIMESTAMP}\"
+                mkdir -p \"\$${DEST}\"
 
-                find /data -name "*.sqlite" | while read -r db; do
-                  REL_DIR=$$(dirname "$${db#/data/}")
-                  mkdir -p "$${DEST}/$${REL_DIR}"
-                  sqlite3 "$${db}" ".backup '\''$${DEST}/$${REL_DIR}/$$(basename "$${db}")'\''"
+                count=0
+                for db in \$$(find /data -name '*.sqlite'); do
+                  [ -f \"\$db\" ] || continue
+                  count=\$((count + 1))
+                  REL_DIR=\$$(dirname \"\$${db#/data/}\")
+                  mkdir -p \"\$${DEST}/\$${REL_DIR}\"
+                  sqlite3 \"\$db\" \".backup '\$${DEST}/\$${REL_DIR}/\$$(basename \"\$db\")'\"
                 done
 
-                ARCHIVE="/backups/actual_$${TS}.tar.gz"
-                tar -czf "$${ARCHIVE}" -C "$${DEST}" .
-                rm -rf "$${DEST}"
-              '
+                if [ \"\$count\" -eq 0 ]; then
+                  echo \"Error: No SQLite databases found under /data\" >&2
+                  exit 1
+                fi
 
-            ARCHIVE_FILE="$BACKUP_TMP/actual_$${TIMESTAMP}.tar.gz"
+                ARCHIVE=\"/tmp/actual_\$${TIMESTAMP}.tar.gz\"
+                tar -czf \"\$${ARCHIVE}\" -C \"\$${DEST}\" .
+                rm -rf \"\$${DEST}\"
 
-            if [ -f "$ARCHIVE_FILE" ]; then
-              /usr/bin/docker run --rm \
-                -v "$BACKUP_TMP":/backups \
-                google/cloud-sdk:alpine \
-                gsutil cp "$ARCHIVE_FILE" "gs://$BACKUP_BUCKET/"
-
-              rm -f "$ARCHIVE_FILE"
-              echo "[$$(date -Iseconds)] Backup successfully uploaded to gs://$BACKUP_BUCKET/actual_$${TIMESTAMP}.tar.gz"
-            else
-              echo "[$$(date -Iseconds)] Error: Archive file not found at $ARCHIVE_FILE" >&2
-              exit 1
-            fi
+                gsutil cp \"\$${ARCHIVE}\" \"gs://$BACKUP_BUCKET/\"
+                rm -f \"\$${ARCHIVE}\"
+                echo \"[\$$(date -Iseconds)] Backup successfully uploaded to gs://$BACKUP_BUCKET/actual_\$${TIMESTAMP}.tar.gz\"
+              "
             EOTBACKUP
     },
     {
