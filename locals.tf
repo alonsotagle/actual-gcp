@@ -136,6 +136,95 @@ locals {
             mkdir -p /mnt/disks/data/tailscale
             cp /tmp/Caddyfile /mnt/disks/data/caddy/Caddyfile
             EOT5
+    },
+    {
+      path        = "/var/lib/actual-backup.sh"
+      permissions = "0755"
+      owner       = "root"
+      content     = <<-EOTBACKUP
+            #!/bin/bash
+            set -euo pipefail
+
+            BACKUP_BUCKET="${google_storage_bucket.backup.name}"
+            DATA_DIR="/mnt/disks/data/actual-data"
+            BACKUP_TMP="/tmp/actual-backups"
+            TIMESTAMP="$$(date +%Y%m%d_%H%M%S)"
+
+            echo "[$$(date -Iseconds)] Starting Actual Budget SQLite backup..."
+
+            mkdir -p "$BACKUP_TMP"
+
+            /usr/bin/docker run --rm \
+              -v "$DATA_DIR":/data:ro \
+              -v "$BACKUP_TMP":/backups \
+              google/cloud-sdk:alpine sh -c '
+                set -euo pipefail
+                apk add --no-cache sqlite tar gzip >/dev/null 2>&1
+                TS="'"$$TIMESTAMP"'"
+                DEST="/backups/$${TS}"
+                mkdir -p "$${DEST}"
+
+                find /data -name "*.sqlite" | while read -r db; do
+                  REL_DIR=$$(dirname "$${db#/data/}")
+                  mkdir -p "$${DEST}/$${REL_DIR}"
+                  sqlite3 "$${db}" ".backup '\''$${DEST}/$${REL_DIR}/$$(basename "$${db}")'\''"
+                done
+
+                ARCHIVE="/backups/actual_$${TS}.tar.gz"
+                tar -czf "$${ARCHIVE}" -C "$${DEST}" .
+                rm -rf "$${DEST}"
+              '
+
+            ARCHIVE_FILE="$BACKUP_TMP/actual_$${TIMESTAMP}.tar.gz"
+
+            if [ -f "$ARCHIVE_FILE" ]; then
+              /usr/bin/docker run --rm \
+                -v "$BACKUP_TMP":/backups \
+                google/cloud-sdk:alpine \
+                gsutil cp "$ARCHIVE_FILE" "gs://$BACKUP_BUCKET/"
+
+              rm -f "$ARCHIVE_FILE"
+              echo "[$$(date -Iseconds)] Backup successfully uploaded to gs://$BACKUP_BUCKET/actual_$${TIMESTAMP}.tar.gz"
+            else
+              echo "[$$(date -Iseconds)] Error: Archive file not found at $ARCHIVE_FILE" >&2
+              exit 1
+            fi
+            EOTBACKUP
+    },
+    {
+      path        = "/etc/systemd/system/actual-backup.service"
+      permissions = "0644"
+      owner       = "root"
+      content     = <<-EOTBKSVC
+            [Unit]
+            Description=Actual Budget SQLite Off-Site Backup to GCS
+            After=docker.service actual.service
+            Requires=docker.service
+
+            [Service]
+            Type=oneshot
+            ExecStart=/bin/bash /var/lib/actual-backup.sh
+            StandardOutput=journal
+            StandardError=journal
+            EOTBKSVC
+    },
+    {
+      path        = "/etc/systemd/system/actual-backup.timer"
+      permissions = "0644"
+      owner       = "root"
+      content     = <<-EOTBKTIMER
+            [Unit]
+            Description=Run Actual Budget Backup Daily
+            After=actual-backup.service
+
+            [Timer]
+            OnCalendar=*-*-* 04:00:00
+            RandomizedDelaySec=300
+            Persistent=true
+
+            [Install]
+            WantedBy=timers.target
+            EOTBKTIMER
     }
   ]
 
@@ -150,7 +239,8 @@ locals {
     "systemctl enable actual.service",
     "systemctl start actual.service",
     "systemctl enable actual-mcp.service",
-    "systemctl start actual-mcp.service"
+    "systemctl start actual-mcp.service",
+    "systemctl enable --now actual-backup.timer"
   ]
 
   bootcmd = [
