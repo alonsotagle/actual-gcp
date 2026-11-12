@@ -13,13 +13,14 @@ locals {
             Description=Start Caddy
             After=network-online.target docker.service tailscale.service
             Requires=docker.service tailscale.service
+            RequiresMountsFor=/mnt/disks/data
 
             [Service]
             Restart=always
             RestartSec=10
             ExecStartPre=-/usr/bin/docker stop caddy
             ExecStartPre=-/usr/bin/docker rm caddy
-            ExecStart=/usr/bin/docker run --rm --network custom-bridge -p 80:80 -p 443:443 --mount 'type=bind,source=/mnt/disks/data/caddy/Caddyfile,target=/etc/caddy/Caddyfile,readonly' --mount 'type=bind,source=/mnt/disks/data/caddy/data,target=/data' --mount 'type=bind,source=/mnt/disks/data/caddy/config,target=/config' -v /var/run/tailscale:/var/run/tailscale --name=caddy caddy:alpine
+            ExecStart=/usr/bin/docker run --rm --network custom-bridge -p 80:80 -p 443:443 --mount 'type=bind,source=/etc/caddy/Caddyfile,target=/etc/caddy/Caddyfile,readonly' --mount 'type=bind,source=/mnt/disks/data/caddy/data,target=/data' --mount 'type=bind,source=/mnt/disks/data/caddy/config,target=/config' -v /var/run/tailscale:/var/run/tailscale --name=caddy caddy:alpine
             ExecStop=-/usr/bin/docker stop caddy
             EOT2
     },
@@ -30,18 +31,23 @@ locals {
       content     = <<-EOT3
             [Unit]
             Description=Start Actual
+            After=docker.service
+            Requires=docker.service
+            RequiresMountsFor=/mnt/disks/data
 
             [Service]
+            Restart=always
+            RestartSec=10
             ExecStartPre=-/usr/bin/docker stop actual_server
             ExecStartPre=-/usr/bin/docker rm actual_server
             ExecStart=/usr/bin/docker run --rm --network custom-bridge --mount 'type=bind,source=/mnt/disks/data/actual-data,target=/data' --name=actual_server actualbudget/actual-server:latest
             ExecStop=/usr/bin/docker stop actual_server
-            ExecStopPost=/usr/bin/docker rm actual_server
+            ExecStopPost=-/usr/bin/docker rm actual_server
             EOT3
     },
     {
       path        = "/etc/actual-mcp.env"
-      permissions = "0644"
+      permissions = "0600"
       owner       = "root"
       content     = <<-EOTENV
             ACTUAL_SERVER_URL=http://actual_server:5006
@@ -59,6 +65,7 @@ locals {
             Description=Start Actual Budget MCP Server
             After=actual.service
             Requires=actual.service
+            RequiresMountsFor=/mnt/disks/data
 
             [Service]
             Restart=always
@@ -71,7 +78,7 @@ locals {
             EOT6
     },
     {
-      path        = "/tmp/Caddyfile"
+      path        = "/etc/caddy/Caddyfile"
       permissions = "0644"
       owner       = "root"
       content     = <<-EOT4
@@ -104,12 +111,13 @@ locals {
             Description=Tailscale
             After=docker.service
             Requires=docker.service
+            RequiresMountsFor=/mnt/disks/data
 
             [Service]
             Restart=always
             ExecStartPre=-/usr/bin/docker stop tailscale
             ExecStartPre=-/usr/bin/docker rm tailscale
-            ExecStart=/usr/bin/docker run --name tailscale --network host --cap-add=NET_ADMIN --cap-add=SYS_MODULE -v /dev/net/tun:/dev/net/tun -v /mnt/disks/data/tailscale:/var/lib/tailscale -v /var/run/tailscale:/var/run/tailscale -e TS_AUTHKEY="${var.ts_authkey}" -e TS_STATE_DIR=/var/lib/tailscale -e TS_SSH=true -e TS_EXTRA_ARGS="--reset" -e TS_SOCKET=/var/run/tailscale/tailscaled.sock tailscale/tailscale:latest
+            ExecStart=/usr/bin/docker run --name tailscale --network host --cap-add=NET_ADMIN --cap-add=SYS_MODULE -v /dev/net/tun:/dev/net/tun -v /mnt/disks/data/tailscale:/var/lib/tailscale -v /var/run/tailscale:/var/run/tailscale -e TS_AUTHKEY="${var.ts_authkey}" -e TS_STATE_DIR=/var/lib/tailscale -e TS_SSH=true -e TS_SOCKET=/var/run/tailscale/tailscaled.sock tailscale/tailscale:latest
             ExecStop=/usr/bin/docker stop tailscale
             EOTTS
     },
@@ -128,13 +136,18 @@ locals {
 
             mkdir -p /mnt/disks/data
             mount -t ext4 -o nodev,nosuid $DEVICE /mnt/disks/data
-            mkdir -p /mnt/disks/data/caddy
             mkdir -p /mnt/disks/data/caddy/data
             mkdir -p /mnt/disks/data/caddy/config
             mkdir -p /mnt/disks/data/actual-data
             mkdir -p /mnt/disks/data/actual-mcp-data
             mkdir -p /mnt/disks/data/tailscale
-            cp /tmp/Caddyfile /mnt/disks/data/caddy/Caddyfile
+
+            if [ ! -f /mnt/disks/data/swapfile ]; then
+              fallocate -l 1G /mnt/disks/data/swapfile || dd if=/dev/zero of=/mnt/disks/data/swapfile bs=1M count=1024
+              chmod 600 /mnt/disks/data/swapfile
+              mkswap /mnt/disks/data/swapfile
+            fi
+            swapon /mnt/disks/data/swapfile || true
             EOT5
     },
     {
@@ -192,6 +205,7 @@ locals {
             Description=Actual Budget SQLite Off-Site Backup to GCS
             After=docker.service actual.service
             Requires=docker.service
+            RequiresMountsFor=/mnt/disks/data
 
             [Service]
             Type=oneshot
@@ -239,12 +253,13 @@ locals {
     "fsck.ext4 -tvy /dev/disk/by-id/google-persistent-disk-1",
     "mkdir -p /mnt/disks/data",
     "mount -t ext4 -o nodev,nosuid /dev/disk/by-id/google-persistent-disk-1 /mnt/disks/data",
-    "mkdir -p /mnt/disks/data/caddy",
     "mkdir -p /mnt/disks/data/caddy/data",
     "mkdir -p /mnt/disks/data/caddy/config",
     "mkdir -p /mnt/disks/data/actual-data",
     "mkdir -p /mnt/disks/data/actual-mcp-data",
-    "mkdir -p /mnt/disks/data/tailscale"
+    "mkdir -p /mnt/disks/data/tailscale",
+    "if [ ! -f /mnt/disks/data/swapfile ]; then fallocate -l 1G /mnt/disks/data/swapfile || dd if=/dev/zero of=/mnt/disks/data/swapfile bs=1M count=1024; chmod 600 /mnt/disks/data/swapfile; mkswap /mnt/disks/data/swapfile; fi",
+    "swapon /mnt/disks/data/swapfile || true"
   ]
 })}
   EOT

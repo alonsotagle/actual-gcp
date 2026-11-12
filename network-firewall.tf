@@ -1,35 +1,3 @@
-resource "google_compute_firewall" "allow_https" {
-  name        = "allow-https"
-  description = "Allows HTTPS traffic."
-  network     = google_compute_network.vpc_network.name
-
-  allow {
-    protocol = "tcp"
-    ports    = ["443"]
-  }
-  direction   = "INGRESS"
-  target_tags = ["https-server"]
-
-  source_ranges = ["0.0.0.0/0"]
-  priority      = "1000"
-}
-
-resource "google_compute_firewall" "allow_http" {
-  name        = "allow-http"
-  description = "Allows HTTP traffic."
-  network     = google_compute_network.vpc_network.name
-
-  allow {
-    protocol = "tcp"
-    ports    = ["80"]
-  }
-  direction   = "INGRESS"
-  target_tags = ["http-server"]
-
-  source_ranges = ["0.0.0.0/0"]
-  priority      = "1000"
-}
-
 resource "google_compute_firewall" "allow_ssh_proxy" {
   name        = "allow-ssh-proxy"
   description = "Allows SSH from Google's Identity Aware Proxy (IAP)"
