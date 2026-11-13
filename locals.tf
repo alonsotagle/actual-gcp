@@ -73,7 +73,7 @@ locals {
             ExecStartPre=-/usr/bin/docker stop actual_mcp
             ExecStartPre=-/usr/bin/docker rm actual_mcp
             ExecStartPre=/bin/rm -rf /mnt/disks/data/actual-mcp-data/*
-            ExecStart=/usr/bin/docker run --name actual_mcp --network custom-bridge -p 127.0.0.1:3000:3000 --env-file /etc/actual-mcp.env --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' sstefanov/actual-mcp:latest --sse --enable-write --enable-bearer
+            ExecStart=/usr/bin/docker run --name actual_mcp --network custom-bridge -p 127.0.0.1:3000:3000 --env-file /etc/actual-mcp.env --env NODE_OPTIONS="--max-old-space-size=256" --mount 'type=bind,source=/mnt/disks/data/actual-mcp-data,target=/data' sstefanov/actual-mcp:latest --sse --enable-write --enable-bearer
             ExecStop=-/usr/bin/docker stop actual_mcp
             EOT6
     },
@@ -178,7 +178,13 @@ locals {
                   count=\$((count + 1))
                   REL_DIR=\$$(dirname \"\$${db#/data/}\")
                   mkdir -p \"\$${DEST}/\$${REL_DIR}\"
-                  sqlite3 \"\$db\" \".backup '\$${DEST}/\$${REL_DIR}/\$$(basename \"\$db\")'\"
+                  BACKUP_FILE=\"\$${DEST}/\$${REL_DIR}/\$$(basename \"\$db\")\"
+                  sqlite3 \"\$db\" \".backup '\$${BACKUP_FILE}'\"
+                  INTEGRITY=\$$(sqlite3 \"\$${BACKUP_FILE}\" 'PRAGMA integrity_check;')
+                  if [ \"\$${INTEGRITY}\" != 'ok' ]; then
+                    echo \"Error: SQLite integrity check failed for \$${BACKUP_FILE}: \$${INTEGRITY}\" >&2
+                    exit 1
+                  fi
                 done
 
                 if [ \"\$count\" -eq 0 ]; then
