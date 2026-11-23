@@ -83,16 +83,26 @@ locals {
       owner       = "root"
       content     = <<-EOT4
             actual.tailfd243b.ts.net {
-              encode gzip zstd
-
-              # Actual MCP Server (Specific paths first)
+              # Actual MCP Server (SSE stream)
               handle /mcp* {
                 uri strip_prefix /mcp
+                reverse_proxy actual_mcp:3000 {
+                  flush_interval -1
+                  transport http {
+                    read_timeout 0
+                    write_timeout 0
+                  }
+                }
+              }
+
+              # MCP SSE follow-up POSTs (actual_mcp advertises /messages?... at root)
+              handle /messages* {
                 reverse_proxy actual_mcp:3000
               }
 
               # Main Actual Budget (Catch-all last)
               handle /* {
+                encode gzip zstd
                 reverse_proxy actual_server:5006
               }
             }
