@@ -127,7 +127,7 @@ locals {
             Restart=always
             ExecStartPre=-/usr/bin/docker stop tailscale
             ExecStartPre=-/usr/bin/docker rm tailscale
-            ExecStart=/usr/bin/docker run --name tailscale --network host --cap-add=NET_ADMIN --cap-add=SYS_MODULE -v /dev/net/tun:/dev/net/tun -v /mnt/disks/data/tailscale:/var/lib/tailscale -v /var/run/tailscale:/var/run/tailscale -e TS_AUTHKEY="${var.ts_authkey}" -e TS_STATE_DIR=/var/lib/tailscale -e TS_SSH=true -e TS_SOCKET=/var/run/tailscale/tailscaled.sock tailscale/tailscale:latest
+            ExecStart=/usr/bin/docker run --name tailscale --network host --cap-add=NET_ADMIN --cap-add=SYS_MODULE -v /dev/net/tun:/dev/net/tun -v /mnt/disks/data/tailscale:/var/lib/tailscale -v /var/run/tailscale:/var/run/tailscale -e TS_AUTHKEY="${var.ts_authkey}" -e TS_STATE_DIR=/var/lib/tailscale -e TS_SOCKET=/var/run/tailscale/tailscaled.sock tailscale/tailscale:latest
             ExecStop=/usr/bin/docker stop tailscale
             EOTTS
     },
